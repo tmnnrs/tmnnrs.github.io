@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Boundaries | Dynamic Labels</title>
+    <link rel="stylesheet" href="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.css" />
+    <link rel="stylesheet" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.54.0/mapbox-gl.css" />
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+    </style>
+</head>
+<body>
+
+<style>
+    .map-overlay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        padding: 10px;
+        background: #fff;
+        font-family: "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font-size: 12px;
+        line-height: 18px;
+        border-radius: 3px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    input[type='radio'] {
+        margin-left: 20px;
+    }
+
+</style>
+
+<div id="map"></div>
+<div class="map-overlay">
+    <input type="checkbox" id="westminster-const-labels" name="westminster-const-labels" checked>
+    <label for="westminster-const-labels"> Polygon Labels</label>
+    <br>
+    <input type="checkbox" id="tile-boundaries" name="tile-boundaries" checked>
+    <label for="tile-boundaries"> Tile Boundaries</label>
+    <br>
+    <input type="checkbox" id="rendered-features" name="rendered-features" checked>
+    <label for="rendered-features"> queryRenderedFeatures</label>
+    <br>
+    <input type="checkbox" id="dynamic-labels" name="dynamic-labels" checked>
+    <label for="dynamic-labels"> Dynamic Labels</label>
+    <br>
+    <input type="radio" id="polylabel" name="label" value="polylabel" checked>
+    <label for="polylabel"> Polylabel</label>
+    <br>
+    <input type="radio" id="centroid" name="label" value="centroid">
+    <label for="centroid"> Centroid</label>
+    <br>
+    <input type="radio" id="center-of-mass" name="label" value="center-of-mass">
+  <label for="center-of-mass"> Center of Mass</label>
+</div>
+
+<script src="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.js"></script>
+<script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.54.0/mapbox-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.2.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lodash/lodash.min.js"></script>
+<script src="https://bundle.run/@mapbox/polylabel@1.0.2"></script>
+<script src="https://npmcdn.com/@turf/turf/turf.min.js"></script>
+<script>
+
+var collection = turf.featureCollection([]);
+var label = 'polylabel';
+
+var style = {
+    "version": 8,
+    "glyphs": "https://s3-eu-west-1.amazonaws.com/tiles.os.uk/v2/fonts/{fontstack}/{range}.pbf",
+    "sources": {},
+    "layers": [{
+        "id": "background",
+        "type": "background",
+        "paint": {
+            "background-color": "#fff"
+        }
+    }]
+};
+
+var map = new mapboxgl.Map({
+    container: 'map',
+    minZoom: 5,
+    maxZoom: 12,
+    maxBounds: [ [ -8.74, 49.84 ], [ 1.96, 60.9 ] ],
+    style: style,
+    center: [ -1.319, 51.063 ],
+    zoom: 10
+});
+
+map.showTileBoundaries = true;
+
+map.on('load', function() {
+    var source = {
+        "type": "vector",
+        "tiles": [ "https://s3-eu-west-1.amazonaws.com/tiles.os.uk/data/vector/boundary-line/latest/{z}/{x}/{y}.pbf" ],
+        "maxzoom": 12
+    };
+
+    map.addLayer({
+        "id": "westminster-const-poly",
+        "type": "fill",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "fill-color": "#39f",
+            "fill-opacity": 0.3
+        }
+    });
+
+    map.addLayer({
+        "id": "westminster-const-outline",
+        "type": "line",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "line-color": "#39f",
+            "line-width": 2
+        }
+    });
+
+    map.addLayer({
+        "id": "westminster-const-labels",
+        "type": "symbol",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "minzoom": 9,
+        "layout": {
+            "text-field": "{Name}",
+            "text-font": [
+                "Source Sans Pro SemiBold"
+            ],
+            "text-size": 10,
+            "text-transform": "uppercase",
+            "text-allow-overlap": true,
+            "text-ignore-placement": true
+        },
+        "paint": {
+            "text-color": "#39f"
+        }
+    });
+
+    map.addLayer({
+        "id": "rendered-features",
+        "type": "line",
+        "source": {
+            "type": "geojson",
+            "data": collection
+        },
+        "minzoom": 9,
+        "paint": {
+            "line-color": "#090",
+            "line-width": 1
+        }
+    });
+
+    map.addLayer({
+        "id": "dynamic-labels",
+        "type": "symbol",
+        "source": {
+            "type": "geojson",
+            "data": collection
+        },
+        "minzoom": 9,
+        "layout": {
+            "text-field": "{Name}",
+            "text-font": [
+                "Source Sans Pro Bold"
+            ],
+            "text-size": 12,
+            "text-transform": "uppercase",
+            "text-allow-overlap": true,
+            "text-ignore-placement": true
+        },
+        "paint": {
+            "text-color": "#000",
+            "text-halo-color": "white",
+            "text-halo-width": 1
+        }
+    });
+
+    map.on('moveend', function(e) {
+        var tileLoad = setInterval(function() {
+            if( map.loaded() ) {
+                dynamicLabels('westminster-const-poly', 'Name');
+                clearInterval(tileLoad);
+            }
+        }, 300);
+    });
+
+   map.on('render', renderCallback);
+});
+
+function renderCallback(e) {
+    if( e.target && e.target.loaded() ) {
+        dynamicLabels('westminster-const-poly', 'Name');
+        map.off('render', renderCallback);
+    }
+}
+
+function dynamicLabels(layer, property) {
+    var features = map.queryRenderedFeatures({
+        layers: [ layer ]
+    });
+
+    var qryArray = [];
+
+    if( map.getZoom() > map.getLayer('rendered-features').minzoom ) {
+        _.forEach(features, function(value) {
+            var coords = turf.getCoords(value);
+            var feat = turf.getType(value) === 'Polygon' ? turf.polygon(coords) : turf.multiPolygon(coords);
+            qryArray.push(feat);
+        });
+    }
+
+    map.getSource('rendered-features').setData(turf.featureCollection(qryArray));
+
+    var bbox = getAdjustedBounds();
+
+    var labelArray = [];
+
+    if( map.getZoom() > map.getLayer('dynamic-labels').minzoom ) {
+        _.forEach(_.uniq(_.map(features, 'properties.' + property)), function(value) {
+            var _features = _.filter(features, function(o) {
+                return o.properties[property] == value;
+            });
+
+            var _polyArray = [];
+            _.forEach(_features, function(value) {
+                 var coords = turf.getCoords(value);
+                 switch( turf.getType(value) ) {
+                     case 'Polygon':
+                         _polyArray.push(turf.polygon(coords));
+                         break;
+                     case 'MultiPolygon':
+                         _polyArray.push(turf.multiPolygon(coords));
+                         break;
+                 }
+            });
+
+            var union = turf.buffer(turf.combine(turf.featureCollection(_polyArray)), 0);
+            union = toSinglePoly(union.features[0]);
+
+            var clipped = union;
+            if( turf.booleanOverlap(union, turf.bboxPolygon(bbox)) ) {
+                clipped = turf.bboxClip(union, bbox);
+                clipped = toSinglePoly(clipped);
+            }
+
+            var pos = _mapbox_polylabel(clipped.geometry.coordinates, 0.001);
+
+            if( typeof label !== 'undefined' ) {
+                switch( label ) {
+                    case 'polylabel':
+                        break;
+                    case 'centroid':
+                        pos = turf.getCoord(turf.centroid(clipped));
+                        break;
+                    case 'center-of-mass':
+                        pos = turf.getCoord(turf.centerOfMass(clipped));
+                        break;
+                }
+            }
+
+            var obj = {};
+            obj[property] = strReplacer(value);
+
+            labelArray.push(turf.point(pos, obj));
+        });
+    }
+
+    map.getSource('dynamic-labels').setData(turf.featureCollection(labelArray));
+}
+
+function getAdjustedBounds() {
+    var mapSW = map.getBounds()._sw;
+    var mapNE = map.getBounds()._ne;
+
+    var _left = map.project(mapSW).x + 10,
+        _bottom = map.project(mapSW).y - 10,
+        _right = map.project(mapNE).x - 10,
+        _top = map.project(mapNE).y + 10;
+
+    mapSW = map.unproject([ _left, _bottom ]);
+    mapNE = map.unproject([ _right, _top ]);
+
+    return [ mapSW.lng, mapSW.lat, mapNE.lng, mapNE.lat ];
+}
+
+function toSinglePoly(feature) {
+    if( turf.getType(feature) === 'MultiPolygon' ) {
+        var area = 0, id = 0;
+        _.forEach(feature.geometry.coordinates, function(value, key) {
+            var _area = turf.area(turf.polygon(value));
+            if( _area > area ) {
+                area = _area;
+                id = key;
+            }
+        });
+        feature = turf.polygon(feature.geometry.coordinates[id]);
+    }
+    return feature;
+}
+
+function strReplacer(str) {
+    _.forEach([ 'Boro Const', 'Burgh Const', 'Co Const' ], function(value) {
+        str = str.replace(" " + value, "");
+    });
+    return str;
+}
+
+$("input[type='checkbox']").click(function() {
+	var name = $(this).attr('name');
+	switch( name ) {
+        case 'westminster-const-labels':
+        case 'rendered-features':
+        case 'dynamic-labels':
+            var visibility = $(this).prop('checked') ? 'visible' : 'none';
+            map.setLayoutProperty(name, 'visibility', visibility);
+
+            if( name === 'dynamic-labels' )
+                $("input[type='radio']").attr('disabled', !$(this).prop('checked'));
+
+            break;
+        case 'tile-boundaries':
+            map.showTileBoundaries = $(this).prop('checked');
+            break;
+    }
+});
+
+$("input[type='radio']").click(function() {
+    label = $(this).val();
+    dynamicLabels('westminster-const-poly', 'Name');
+});
+
+</script>
+
+</body>
+</html>

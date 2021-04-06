@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Boundaries | Data Driven Styling</title>
+    <link rel="stylesheet" href="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.css" />
+    <link rel="stylesheet" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.54.0/mapbox-gl.css" />
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+    </style>
+</head>
+<body>
+
+<style>
+    .map-popup {
+        margin: 10px 8px 0;
+    }
+    .map-popup span {
+        display: inline-block;
+        vertical-align: top;
+    }
+    .map-popup span:nth-child(1) {
+        width: 82px;
+        color: #999;
+    }
+    .map-popup span:nth-child(2) {
+        width: 112px;
+    }
+
+    .map-overlay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: #fff;
+        font-family: "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font-size: 12px;
+        border-radius: 3px;
+        line-height: 18px;
+    }
+
+    #legend {
+        display: none;
+        padding: 10px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    #legend span {
+        vertical-align: middle;
+        line-height: normal;
+    }
+
+    .legend-key {
+        display: inline-block;
+        border-radius: 20%;
+        width: 10px;
+        height: 10px;
+        margin-right: 5px;
+        opacity: 0.8;
+        border: 1px solid #eee;
+    }
+
+</style>
+
+<div id="map"></div>
+<div id="legend" class="map-overlay"></div>
+
+<script src="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.js"></script>
+<script src="https://api.tiles.mapbox.com/mapbox-gl-js/v1.13.0/mapbox-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.2.1/dist/jquery.min.js"></script>
+<script>
+
+Array.prototype.insert = function(index, items){this.splice.apply(this, [index, 0].concat(items));}
+
+var oMembers, oNames = [];
+var o50kBndyOSNI = [];
+
+var popup;
+
+var map = new mapboxgl.Map({
+    container: 'map',
+    minZoom: 5,
+    maxZoom: 12,
+    maxBounds: [ [ -10.56, 49.84 ], [ 1.96, 60.9 ] ],
+    style: 'https://s3-eu-west-1.amazonaws.com/tiles.os.uk/v2/styles/open-zoomstack-light/style.json',
+    center: [ -1.485, 52.567 ],
+    zoom: 5,
+    attributionControl: false
+});
+
+map.dragRotate.disable(); // Disable map rotation using right click + drag
+map.touchZoomRotate.disableRotation(); // Disable map rotation using touch rotation gesture
+
+map.on('load', function() {
+    // Move national park names below city names.
+    map.moveLayer("national park names", "city names");
+
+    $.when(
+        $.ajax({
+            url: 'https://data.parliament.uk/membersdataplatform/services/mnis/members/query/House=Commons/',
+            type: 'GET',
+            headers: { 'Accept': 'application/json' },
+            dataType: 'json',
+            crossDomain: true,
+            success: function(json) {
+                oMembers = json.Members;
+            }
+        }),
+        $.getJSON('https://s3-eu-west-1.amazonaws.com/tiles.os.uk/data/vector/boundary-line/latest/metadata.json', function(data) {
+            var json = JSON.parse(data.json);
+
+            var _layer = $.grep(json.tilestats.layers, function(obj){return obj.layer === "westminster-constituencies";})[0];
+            var _attr = $.grep(_layer.attributes, function(obj){return obj.attribute === "Name";})[0];
+
+            for( var i = 0; i < _attr.values.length; i++ ) {
+                oNames.push({ "name": stringReplacer(_attr.values[i]), "fullname": _attr.values[i] });
+            }
+        }),
+        // $.getJSON('https://osni-spatial-ni.opendata.arcgis.com/datasets/ef212a5825514aa8b39259e54cbe87b1_3.geojson', function(data) {
+        $.getJSON('../datasets/osni-parliamentary-constituencies.geojson', function(data) {
+            o50kBndyOSNI = data;
+
+            for( var i = 0; i < o50kBndyOSNI.features.length; i++ ) {
+                var name = o50kBndyOSNI.features[i].properties.PC_NAME;
+
+                oNames.push({ "name": name, "fullname": name });
+
+                o50kBndyOSNI.features[i].properties.Name = name;
+            }
+        })
+    ).then(function() {
+        var expr = "#cccccc",
+            outline = "#666666",
+            lookup = [],
+            summary = {};
+
+        // http://data.parliament.uk/membersdataplatform/services/mnis/HouseOverview/Commons/YYYY-MM-DD/
+        var colorsLookup = {
+            "Conservative": "#0087dc",
+            "Labour": "#dc241f",
+            "Scottish National Party": "#fef987",
+            "Liberal Democrat": "#faa61a",
+            "Democratic Unionist Party": "#d46a4c",
+            "Sinn Féin": "#326760",
+            "Independent": "#dddddd",
+            "Plaid Cymru": "#008142",
+            "Alba Party": "#005eb8",
+            "Social Democratic & Labour Party": "#2aa82c",
+            "Alliance": "#f6cb2f",
+            "Green Party": "#6ab023",
+            "Speaker": "#c4c4c4",
+            // "Vacant": "#ffffff"
+        };
+
+        if( oMembers && oMembers.Member.length ) {
+            expr = [ "match", [ "get", "Name" ], "rgba(0,0,0,0)" ],
+            outline = "#ffffff";
+
+            $.each(oMembers.Member, function(k, v) {
+                var p = v['Party']['#text'],
+                    m = v['MemberFrom'],
+                    d = v['HouseStartDate'];
+
+                p = p.replace(" (Co-op)", "");
+
+                m = m.replace(/St /g, "St. "); // Replace "St " with "St. "
+                m = stripAccents(m); // Remove accented characters
+
+                d = new Date(d).getFullYear()
+
+                var obj = $.grep(oNames, function(obj){return obj.name.toUpperCase() === m.toUpperCase();})[0];
+                if( obj ) {
+                    expr.insert(2, [ obj.fullname, colorsLookup[p] ]);
+
+                    lookup.push({
+                        '_name': obj.fullname,
+                        'Constituency': v['MemberFrom'],
+                        'Name': v['DisplayAs'],
+                        'Party': p,
+                        'First Elected': d
+                    });
+
+                    summary[p] = summary[p] ? summary[p]+1 : 1;
+                }
+            });
+
+            for( var i in colorsLookup ) {
+                if( summary[i] ) {
+                    var item = document.createElement('div');
+
+                    var key = document.createElement('span');
+                    key.className = 'legend-key';
+                    key.style.backgroundColor = colorsLookup[i];
+
+                    var value = document.createElement('span');
+                    value.innerHTML = i + ': <b>' + summary[i] + '</b>';
+
+                    item.appendChild(key);
+                    item.appendChild(value);
+
+                    legend.appendChild(item);
+                }
+            }
+
+            legend.style.display = 'block';
+        }
+
+        addLayers(expr, outline);
+
+        map.on('click', function(e) {
+            if( popup )
+                popup.remove();
+
+            var features = map.queryRenderedFeatures(e.point, { layers: [ 'westminster-const', 'northern-ireland-const' ] });
+            if(! features.length )
+                return;
+
+            var obj = {
+                'Constituency': stringReplacer(features[0].properties.Name),
+                'Party': 'Vacant'
+            };
+
+            var _grep = $.grep(lookup, function(obj){return obj._name === features[0].properties.Name;});
+            if( _grep.length )
+                obj = _grep[0];
+
+            var popupString = '<div class="map-popup">';
+            for( var key in obj ) {
+                if( key !== '_name' )
+                    popupString += '<div><span>' + key + '</span><span>' + obj[ key ] + '</span></div>';
+            }
+            popupString += '</div>';
+
+            popup = new mapboxgl.Popup({ closeOnClick: false })
+                .setLngLat(e.lngLat)
+                .setHTML(popupString)
+                .addTo(map);
+
+            popup.on('close', function(e) {
+                map.setFilter("westminster-const-highlighted", [ "in", "Global_Polygon_ID", "" ]);
+                map.setFilter("westminster-const-line-highlighted", [ "in", "Global_Polygon_ID", "" ]);
+                map.setFilter("northern-ireland-const-highlighted", [ "in", "PC_ID", "" ]);
+                map.setFilter("northern-ireland-const-line-highlighted", [ "in", "PC_ID", "" ]);
+            });
+
+            if( features[0].layer.id == 'westminster-const' ) {
+                map.setFilter("westminster-const-highlighted", [ "in", "Global_Polygon_ID", features[0].properties.Global_Polygon_ID ]);
+                map.setFilter("westminster-const-line-highlighted", [ "in", "Global_Polygon_ID", features[0].properties.Global_Polygon_ID ]);
+            }
+            else {
+                map.setFilter("northern-ireland-const-highlighted", [ "in", "PC_ID", features[0].properties.PC_ID ]);
+                map.setFilter("northern-ireland-const-line-highlighted", [ "in", "PC_ID", features[0].properties.PC_ID ]);
+            }
+        });
+
+        map.on('mousemove', function(e) {
+            var features = map.queryRenderedFeatures(e.point, { layers: [ 'westminster-const', 'northern-ireland-const' ] });
+            map.getCanvas().style.cursor = (features.length) ? 'pointer' : '';
+        });
+    });
+});
+
+function addLayers(expr, outline) {
+    /*
+     * Parliamentary constituencies (England + Scotland + Wales)
+     */
+    var source = {
+        "type": "vector",
+        "tiles": [ "https://s3-eu-west-1.amazonaws.com/tiles.os.uk/data/vector/boundary-line/latest/{z}/{x}/{y}.pbf" ],
+        "maxzoom": 12
+    };
+
+    map.addLayer({
+        "id": "westminster-const",
+        "type": "fill",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "fill-color": expr,
+            "fill-opacity": 0.5
+        }
+    }, "city names");
+
+    map.addLayer({
+        "id": "westminster-const-line",
+        "type": "line",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "line-color": outline,
+            "line-width": {
+                "type": "exponential",
+                "base": 2,
+                "stops": [
+                    [ 10, 1 * Math.pow(2, (10 - 12)) ],
+                    [ 24, 1 * Math.pow(2, (24 - 12)) ]
+                ]
+            }
+        }
+    }, "city names");
+
+    map.addLayer({
+        "id": "westminster-const-highlighted",
+        "type": "fill",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "fill-color": "#4c4c4c",
+            "fill-opacity": 0.15
+        },
+        "filter": [ "in", "Global_Polygon_ID", "" ]
+    }, "city names");
+
+    map.addLayer({
+        "id": "westminster-const-line-highlighted",
+        "type": "line",
+        "source": source,
+        "source-layer": "westminster-constituencies",
+        "paint": {
+            "line-color": "#4c4c4c",
+            "line-width": 2
+        },
+        "filter": [ "in", "Global_Polygon_ID", "" ]
+    }, "city names");
+
+    /*
+     * Parliamentary constituencies (Northern Ireland)
+     */
+    map.addSource("src-northern-ireland-const", {
+        "type": "geojson",
+        "data": o50kBndyOSNI
+    });
+
+    map.addLayer({
+        "id": "northern-ireland-const",
+        "type": "fill",
+        "source": "src-northern-ireland-const",
+        "paint": {
+            "fill-color": expr,
+            "fill-opacity": 0.5
+        }
+    }, "city names");
+
+    map.addLayer({
+        "id": "northern-ireland-const-line",
+        "type": "line",
+        "source": "src-northern-ireland-const",
+        "paint": {
+            "line-color": outline,
+            "line-width": {
+                "type": "exponential",
+                "base": 2,
+                "stops": [
+                    [ 10, 1 * Math.pow(2, (10 - 12)) ],
+                    [ 24, 1 * Math.pow(2, (24 - 12)) ]
+                ]
+            }
+        }
+    }, "city names");
+
+    map.addLayer({
+        "id": "northern-ireland-const-highlighted",
+        "type": "fill",
+        "source": "src-northern-ireland-const",
+        "paint": {
+            "fill-color": "#4c4c4c",
+            "fill-opacity": 0.15
+        },
+        "filter": [ "in", "PC_ID", "" ]
+    }, "city names");
+
+    map.addLayer({
+        "id": "northern-ireland-const-line-highlighted",
+        "type": "line",
+        "source": "src-northern-ireland-const",
+        "paint": {
+            "line-color": "#4c4c4c",
+            "line-width": 2
+        },
+        "filter": [ "in", "PC_ID", "" ]
+    }, "city names");
+}
+
+function stringReplacer(str) {
+    var arr = [ 'Boro Const', 'Burgh Const', 'Co Const' ];
+    for( var i = 0; i < arr.length; i++ ) {
+        str = str.replace(arr[i], "").trim();
+    }
+    return str;
+};
+
+function stripAccents(str) {
+    var reAccents = /[àáâãäçèéêëìíîïñòóôõöùúûüýÿÀÁÂÃÄÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ]/g;
+    var replacements = '_aaaaaceeeeiiiinooooouuuuyyAAAAACEEEEIIIINOOOOOUUUUY';
+    return str.replace(reAccents, function(match) {
+        return replacements[ reAccents.source.indexOf(match) ];
+    });
+};
+
+</script>
+
+</body>
+</html>

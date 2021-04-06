@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Terrain-RGB | Dynamic Hillshade</title>
+    <link rel="stylesheet" href="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.css" />
+    <link rel="stylesheet" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.54.0/mapbox-gl.css" />
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+    </style>
+</head>
+<body>
+
+<style>
+    .map-overlay {
+        font: bold 14px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+        position: absolute;
+        top: 0;
+        left: 0;
+        padding: 10px;
+    }
+    .map-overlay .map-overlay-inner {
+        background-color: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.20);
+        border-radius: 3px;
+        padding: 4px;
+        width: 120px;
+        height: 112px;
+    }
+
+    #direction {
+        position: absolute;
+        top: 40px;
+        left: 98px;
+        cursor: default;
+    }
+
+    #reset {
+        display: block;
+        position: relative;
+        margin: 0px auto;
+        width: 90%;
+        height: 32px;
+        line-height: 32px;
+        border: none;
+        border-radius: 3px;
+        font-size: 13px;
+        text-align: center;
+        color: #fff;
+        background: #2979af;
+        cursor: pointer;
+    }
+
+</style>
+
+<div id="map"></div>
+<div class="map-overlay top">
+  <div class="map-overlay-inner">
+    <div id="control"></div>
+    <div id="direction"></div>
+    <div id="reset" onclick="reset(315);">Reset</div>
+  </div>
+</div>
+
+<script src="https://labs.os.uk/public/os-api-branding/v0.2.0/os-api-branding.js"></script>
+<script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.54.0/mapbox-gl.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/kineticjs/5.2.0/kinetic.min.js"></script>
+<script>
+
+var map = new mapboxgl.Map({
+    container: 'map',
+    minZoom: 5,
+    maxZoom: 14,
+    maxBounds: [ [ -8.74, 49.84 ], [ 1.96, 60.9 ] ],
+    style: 'https://s3-eu-west-1.amazonaws.com/tiles.os.uk/v2/styles/open-zoomstack-outdoor/style.json',
+    center: [ -4.076, 53.069 ],
+    zoom: 10
+});
+
+map.dragRotate.disable();
+map.touchZoomRotate.disableRotation();
+
+map.on('load', function () {
+    map.addSource("dem", {
+        "type": "raster-dem",
+        "tiles": [ "https://s3-eu-west-1.amazonaws.com/tiles.os.uk/data/terrain-rgb/terrain50/{z}/{x}/{y}.png" ],
+        "maxzoom": 9
+    });
+    map.addLayer({
+        "id": "hillshading",
+        "source": "dem",
+        "type": "hillshade",
+        "paint": {
+            "hillshade-illumination-direction": 315,
+            "hillshade-exaggeration": 0.8,
+            "hillshade-shadow-color": "#11001a",
+            "hillshade-highlight-color": "#fffcd6",
+            "hillshade-accent-color": "#1b0029"
+        }
+    }, "contours");
+});
+
+var angle, distance;
+
+var deg2rad = Math.PI / 180,
+    rad2deg = 180 / Math.PI;
+
+var dotAz = 315,
+    dotAlt = 62.5;
+
+document.getElementById('direction').innerHTML = parseInt(dotAz) + '&deg;';
+
+Kinetic.pixelRatio = 2;
+
+var stage = new Kinetic.Stage({
+    container: 'control',
+    width: 72,
+    height: 72
+});
+
+var w = stage.getWidth() / 2,
+    h = stage.getHeight() / 2;
+
+dotAlt = 90 - dotAlt;
+
+var dotX = stage.getWidth() / 2 + (dotAlt * Math.sin(dotAz * deg2rad)),
+    dotY = stage.getWidth() / 2 + (0 - (dotAlt * Math.cos(dotAz * deg2rad)));
+
+var layer = new Kinetic.Layer();
+
+layer.add(new Kinetic.Line({ points: [8, 36, 64, 36], stroke: '#eee', strokeWidth: 1 }));
+layer.add(new Kinetic.Line({ points: [36, 8, 36, 64], stroke: '#eee', strokeWidth: 1 }));
+layer.add(new Kinetic.Circle({ x: w, y: h, radius: 28, stroke: '#eee', strokeWidth: 2 }));
+layer.add(new Kinetic.Circle({ x: w, y: h, radius: 4, stroke: '#999', strokeWidth: 1, fill: '#999' }));
+
+var dot = new Kinetic.Circle({
+    x: dotX,
+    y: dotY,
+    radius: 5,
+    stroke: '#2979af',
+    strokeWidth: 6,
+    fill: '#fff',
+    draggable: true,
+    dragBoundFunc: function(pos) {
+        var x = w,
+            y = h,
+            radius = 27.5,
+            scale = radius / Math.sqrt(Math.pow(pos.x - x, 2) + Math.pow(pos.y - y, 2));
+        return {
+            y: (pos.y - y) * scale + y,
+            x: (pos.x - x) * scale + x
+        };
+    }
+});
+
+dot.on('mouseover dragstart', function() {
+    dot.setRadius(6.5);
+    dot.setStrokeWidth(3);
+    dot.draw();
+    document.body.style.cursor = 'pointer';
+});
+
+dot.on('mouseout dragend', function() {
+    dot.setRadius(5);
+    dot.setStrokeWidth(6);
+    dot.draw();
+    document.body.style.cursor = 'default';
+});
+
+dot.on('dragmove', function() {
+    var x = dot.getPosition().x - w,
+        y = 0 - (dot.getPosition().y - h);
+
+    az = Math.atan2(x, y) * rad2deg;
+    az = az < 0 ? az += 360 : az;
+
+    alt = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+    alt = 90 - alt;
+
+    document.getElementById('direction').innerHTML = parseInt(az) + '&deg;';
+
+    if( typeof map.getLayer('hillshading') !== 'undefined' )
+        map.setPaintProperty('hillshading', 'hillshade-illumination-direction', parseInt(az));
+});
+
+layer.add(dot);
+
+stage.add(layer);
+
+function reset(n) {
+    dot.setPosition({ x: dotX, y: dotY });
+    layer.draw();
+    document.getElementById('direction').innerHTML = parseInt(n) + '&deg;';
+    map.setPaintProperty('hillshading', 'hillshade-illumination-direction', parseInt(n));
+}
+
+</script>
+
+</body>
+</html>

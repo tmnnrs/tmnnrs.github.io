@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>OS Open Zoomstack | Tilted Map Bounds</title>
+    <link rel="stylesheet" href="https://api.tiles.mapbox.com/mapbox-gl-js/v1.13.0/mapbox-gl.css" />
+    <style>
+        #map {
+            width: 400px;
+            height: 300px;
+        }
+        #map1 {
+            width: 300px;
+            height: 225px;
+        }
+        .rotation-control {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            top: 16px;
+            right: 16px;
+            background-color: #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.2);
+            box-sizing: border-box;
+            z-index: 9999;
+            cursor: pointer;
+        }
+        .rotation-control .compass {
+            width: 24px;
+            height: 24px;
+            margin: 4px;
+            background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij4KICAgIDx0aXRsZT5uYXYtY29tcGFzczwvdGl0bGU+CiAgICA8ZyBzdHJva2U9Im5vbmUiIHN0cm9rZS13aWR0aD0iMSIgZmlsbD0ibm9uZSIgZmlsbC1ydWxlPSJldmVub2RkIj4KICAgICAgICA8cG9seWdvbiBmaWxsPSIjZGRkIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMiwgMTgpIHNjYWxlKDEsIC0xKSB0cmFuc2xhdGUoLTEyLCAtMTgpIiBwb2ludHM9IjEyIDEyIDE2IDI0IDggMjQiPjwvcG9seWdvbj4KICAgICAgICA8cG9seWdvbiBmaWxsPSIjZDQwMDU4IiBwb2ludHM9IjEyIDAgMTYgMTIgOCAxMiI+PC9wb2x5Z29uPgogICAgPC9nPgo8L3N2Zz4=');
+            background-repeat: no-repeat;
+            background-position: 50% 50%;
+        }
+        :focus { outline: none; }
+    </style>
+</head>
+<body>
+
+<div id="map">
+    <div class="rotation-control">
+        <div class="compass"></div>
+    </div>
+</div>
+<div id="map1"></div>
+
+<script src="https://api.tiles.mapbox.com/mapbox-gl-js/v1.13.0/mapbox-gl.js"></script>
+<script src="https://npmcdn.com/@turf/turf/turf.min.js"></script>
+<script>
+
+    const bounds = [ [ -8.74, 49.84 ], [ 1.96, 60.9 ] ];
+    const center = [ -1.470, 50.938 ];
+    const style = 'https://s3-eu-west-1.amazonaws.com/tiles.os.uk/v2/styles/open-zoomstack-outdoor/style.json'
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        minZoom: 5,
+        maxZoom: 16,
+        maxBounds: bounds,
+        style: style,
+        center: center,
+        zoom: 15.4,
+        bearing: -9.6,
+        pitch: 60
+    });
+
+    const map1 = new mapboxgl.Map({
+        container: 'map1',
+        minZoom: 5,
+        maxZoom: 16,
+        maxBounds: bounds,
+        style: style,
+        center: center,
+        zoom: 12
+    });
+
+    updateCompass();
+
+    document.getElementsByClassName("compass")[0].addEventListener('click', function() {
+        map.setPitch(0).setBearing(0);
+    });
+
+    map.on('move', function() {
+        updateCompass();
+
+        map1.getSource('polygon').setData(getPolygon());
+
+        map1.jumpTo({
+            center: this.getCenter(),
+            zoom: this.getZoom()-3
+        });
+    });
+
+    map1.on('load', function() {
+        map1.addLayer({
+            "id": "polygon",
+            "type": "fill",
+            "source": {
+                "type": "geojson",
+                "data": getPolygon()
+            },
+            "layout": {},
+            "paint": {
+                "fill-color": "#f80",
+                "fill-opacity": 0.5
+            }
+        });
+    });
+
+    function updateCompass() {
+        document.getElementsByClassName("compass")[0].style.transform = 'rotate(' + -parseInt(map.getBearing()) + 'deg)';
+    }
+
+    /**
+     * https://stackoverflow.com/questions/50490306/how-to-get-mapbox-gl-map-viewport-edges-coordinates-considering-pitch-and-bearin
+     */
+    function getPolygon() {
+        const dpr = window.devicePixelRatio || 1;
+        const canvas = map.getCanvas();
+        const w = canvas.width / dpr;
+        const h = canvas.height / dpr;
+        const cUL = map.unproject([ 0, 0 ]).toArray();
+        const cUR = map.unproject([ w, 0 ]).toArray();
+        const cLR = map.unproject([ w, h ]).toArray();
+        const cLL = map.unproject([ 0, h ]).toArray();
+        return turf.polygon([[ cUL, cUR, cLR, cLL, cUL ]]);
+    }
+
+</script>
+
+</body>
+</html>
